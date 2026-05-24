@@ -1,6 +1,13 @@
 """SEC EDGAR Insider Trading Proxy API
 Deployed on US-based server (Hetzner Virginia) to bypass SEC geo-restrictions.
 Called by n8n Code node for insider trading data.
+
+Field mapping (efts.sec.gov → our output):
+  file_date → filing_date
+  display_names[0] → company
+  ciks[0] → cik
+  form → form_type
+  file_num → file_number
 """
 
 import json
@@ -11,7 +18,7 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-app = FastAPI(title="SEC EDGAR Proxy", version="1.0.0")
+app = FastAPI(title="SEC EDGAR Proxy", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,24 +34,21 @@ HEADERS = {
 
 
 def fetch_insider_trades(cik: str, lookback_days: int = 90) -> list:
-    """Fetch Form 4 insider trades from SEC EDGAR API using efts.sec.gov."""
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=lookback_days)
-
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str = end_date.strftime("%Y-%m-%d")
+    """
+    Fetch Form 4 insider trades from SEC EDGAR.
+    Note: dateRange=custom + startdt/enddt breaks the SEC API — we fetch
+    recent filings without date filter and filter client-side.
+    """
+    cutoff_date = datetime.now() - timedelta(days=lookback_days)
 
     all_results = []
     from_idx = 0
+    max_pages = 5  # safety limit
 
-    while True:
+    while from_idx < max_pages * 100:
         url = (
             f"https://efts.sec.gov/LATEST/search-index"
             f"?q={cik}"
-            f"&dateRange=custom"
-            f"&category=form-cat2"
-            f"&startdt={start_str}"
-            f"&enddt={end_str}"
             f"&forms=4"
             f"&from={from_idx}"
         )
@@ -55,49 +59,62 @@ def fetch_insider_trades(cik: str, lookback_days: int = 90) -> list:
                 data = json.loads(raw)
         except urllib.error.HTTPError as e:
             body = e.read().decode()[:300]
-            raise HTTPException(
-                status_code=502,
-                detail=f"SEC API HTTP {e.code}: {body}",
-            )
+            raise HTTPException(status_code=502, detail=f"SEC API HTTP {e.code}: {body}")
         except json.JSONDecodeError as e:
-            raise HTTPException(
-                status_code=502,
-                detail=f"SEC returned non-JSON: {raw[:500]}",
-            )
+            raise HTTPException(status_code=502, detail=f"SEC non-JSON: {raw[:500]}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
         hits = data.get("hits", {}).get("hits", [])
-        all_results.extend(hits)
-
-        total = data.get("hits", {}).get("total", {}).get("value", 0)
-        from_idx += len(hits)
-        if from_idx >= total or len(hits) == 0:
+        if not hits:
             break
 
-    # Normalize
+        all_results.extend(hits)
+        total = data.get("hits", {}).get("total", {}).get("value", 0)
+        from_idx += len(hits)
+        if from_idx >= total:
+            break
+
+    # Normalize with correct field names
     trades = []
     for hit in all_results:
         src = hit.get("_source", {})
-        shares = src.get("sharesTraded", 0) or 0
-        price = src.get("pricePerShare", 0) or 0
+
+        # Parse file_date
+        file_date_str = src.get("file_date", "")
+        try:
+            file_date = datetime.strptime(file_date_str[:10], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            file_date = None
+
+        # Client-side date filter
+        if file_date and file_date < cutoff_date:
+            continue
+
+        # Extract fields
+        ciks = src.get("ciks", [])
+        display_names = src.get("display_names", [])
+        adsh = src.get("adsh", "")
+        form_type = src.get("form", "")
+
+        company = display_names[0] if display_names else ""
+        filing_cik = ciks[0] if ciks else cik
+
         trades.append(
             {
-                "filing_date": src.get("fileDate", ""),
-                "company": src.get("companyName", ""),
-                "ticker": src.get("issuerTradingSymbol", ""),
-                "insider_name": src.get("reportingOwnerName", ""),
-                "title": src.get("reportingOwnerTitle", ""),
-                "transaction_type": src.get("transactionCode", ""),
-                "shares": shares,
-                "price": price,
-                "total_value": shares * abs(price),
-                "shares_owned_after": src.get("sharesOwnedAfterTransaction", 0),
+                "filing_date": file_date_str[:10] if file_date_str else "",
+                "company": company,
+                "cik": filing_cik,
+                "form_type": form_type,
+                "adsh": adsh,
+                "file_num": src.get("file_num", ""),
+                "period_ending": src.get("period_ending", ""),
+                "items": src.get("items", []),
                 "form_url": (
-                    f"https://www.sec.gov/Archives/edgar/data/{cik}/"
-                    f"{src.get('accessionNo', '').replace('-', '')}/"
-                    f"{src.get('primaryDocument', '')}"
-                ),
+                    f"https://www.sec.gov/Archives/edgar/data/{filing_cik}/"
+                    f"{adsh.replace('-', '')}/"
+                    f"{adsh.replace('-', '')}-index.htm"
+                ) if adsh else "",
             }
         )
 
@@ -106,7 +123,7 @@ def fetch_insider_trades(cik: str, lookback_days: int = 90) -> list:
 
 @app.get("/")
 def root():
-    return {"service": "SEC EDGAR Proxy", "status": "running"}
+    return {"service": "SEC EDGAR Proxy", "status": "running", "version": "1.1.0"}
 
 
 @app.get("/insider")
@@ -130,7 +147,6 @@ def insider_by_ticker(
     lookback: int = Query(90, description="Lookback days (default 90)"),
 ):
     """Get insider trading data by ticker symbol (auto-resolves CIK)."""
-    # First, get CIK from ticker via SEC company_tickers.json
     cik_url = "https://www.sec.gov/files/company_tickers.json"
     req = urllib.request.Request(cik_url, headers=HEADERS)
     try:
@@ -159,35 +175,27 @@ def insider_by_ticker(
     }
 
 
-@app.get("/debug/efts")
-def debug_efts(
+@app.get("/debug/raw")
+def debug_raw(
     cik: str = Query("320193", description="CIK number"),
-    lookback: int = Query(90, description="Lookback days"),
 ):
-    """Debug: return raw SEC efts response."""
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=lookback)
-
-    url = (
-        f"https://efts.sec.gov/LATEST/search-index"
-        f"?q={cik}"
-        f"&dateRange=custom"
-        f"&category=form-cat2"
-        f"&startdt={start_date.strftime('%Y-%m-%d')}"
-        f"&enddt={end_date.strftime('%Y-%m-%d')}"
-        f"&forms=4"
-        f"&from=0"
-    )
+    """Debug: return raw SEC efts response (no date filter)."""
+    url = f"https://efts.sec.gov/LATEST/search-index?q={cik}&forms=4&from=0"
     req = urllib.request.Request(url, headers=HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = resp.read().decode()
+            data = json.loads(raw)
+            total = data.get("hits", {}).get("total", {}).get("value", 0)
+            hits = data.get("hits", {}).get("hits", [])
             return {
                 "url": url,
-                "status": resp.status,
-                "total_hits": json.loads(raw).get("hits", {}).get("total", {}),
-                "hit_count": len(json.loads(raw).get("hits", {}).get("hits", [])),
-                "raw_length": len(raw),
+                "total_hits": total,
+                "returned": len(hits),
+                "sample_source_keys": (
+                    sorted(hits[0].get("_source", {}).keys()) if hits else []
+                ),
+                "sample": hits[0].get("_source", {}) if hits else None,
             }
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
