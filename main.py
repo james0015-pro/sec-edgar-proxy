@@ -606,6 +606,217 @@ def institutional_search(
     }
 
 
+@app.get("/institutional/full")
+def institutional_full(
+    ticker: str = Query(..., description="Stock ticker (e.g. AAPL)"),
+):
+    """
+    Complete institutional picture: NASDAQ holders + SEC 13F search.
+    Shows WHO holds, HOW MUCH, and recent CHANGES.
+    """
+    # 1. NASDAQ holders (real-time-ish)
+    nasdaq_url = f"https://api.nasdaq.com/api/company/{ticker.upper()}/institutional-holdings?limit=30&type=TOTAL&sortBy=marketValue"
+    nasdaq_req = urllib.request.Request(
+        nasdaq_url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "application/json",
+        },
+    )
+    holders = []
+    ownership_pct = "N/A"
+    total_value = "N/A"
+    try:
+        with urllib.request.urlopen(nasdaq_req, timeout=15) as resp:
+            nd = json.loads(resp.read())
+        summary = nd.get("data", {}).get("ownershipSummary", {})
+        ownership_pct = summary.get("SharesOutstandingPCT", {}).get("value", "N/A")
+        total_value = summary.get("TotalHoldingsValue", {}).get("value", "N/A")
+        rows = nd.get("data", {}).get("activePositions", {}).get("rows", [])
+        for row in rows[:30]:
+            holders.append({
+                "holder": row.get("ownerName", ""),
+                "shares": row.get("sharesHeld", ""),
+                "value": row.get("marketValue", ""),
+                "change_shares": row.get("sharesChange", ""),
+                "change_pct": row.get("sharesChangePct", ""),
+                "filing_date": row.get("reportDate", ""),
+            })
+    except Exception:
+        pass
+
+    # 2. SEC 13F reverse search (who filed 13F mentioning this ticker)
+    sec_url = (
+        f"https://efts.sec.gov/LATEST/search-index"
+        f"?q={ticker.upper()}"
+        f"&forms=13F-HR"
+        f"&from=0"
+    )
+    sec_req = urllib.request.Request(sec_url, headers=HEADERS)
+    sec_filers = []
+    try:
+        with urllib.request.urlopen(sec_req, timeout=15) as resp:
+            sd = json.loads(resp.read())
+        for hit in sd.get("hits", {}).get("hits", [])[:50]:
+            src = hit.get("_source", {})
+            sec_filers.append({
+                "filer": src.get("display_names", [""])[0],
+                "cik": src.get("ciks", [""])[0],
+                "filing_date": src.get("file_date", ""),
+                "adsh": src.get("adsh", ""),
+            })
+    except Exception:
+        pass
+
+    return {
+        "ticker": ticker.upper(),
+        "institutional_ownership": ownership_pct,
+        "total_holdings_value": total_value,
+        "nasdaq_holders": holders,
+        "nasdaq_holders_count": len(holders),
+        "sec_13f_filers": sec_filers,
+        "sec_13f_count": len(sec_filers),
+    }
+
+
+@app.get("/insider/detail")
+def insider_detail(
+    ticker: str = Query(..., description="Stock ticker (e.g. AAPL)"),
+    lookback: int = Query(730, description="Lookback days (default 2 years)"),
+):
+    """
+    Detailed insider trading with buy/sell direction, prices, and 2-year history.
+    Parses Form 4 filings to extract transaction details.
+    """
+    import xml.etree.ElementTree as ET
+
+    cik = cik_from_ticker(ticker)
+    padded = cik_padded(cik)
+
+    # Get Form 4 filings from submissions API
+    url = f"https://data.sec.gov/submissions/CIK{padded}.json"
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+
+    filings = data.get("filings", {}).get("recent", {})
+    forms = filings.get("form", [])
+    dates = filings.get("filingDate", [])
+    accs = filings.get("accessionNumber", [])
+    docs = filings.get("primaryDocument", [])
+
+    cutoff = datetime.now() - timedelta(days=lookback)
+    trades = []
+
+    for i in range(len(forms)):
+        if forms[i] != "4":
+            continue
+        try:
+            fd = datetime.strptime(dates[i], "%Y-%m-%d")
+        except (ValueError, IndexError):
+            continue
+        if fd < cutoff:
+            continue
+
+        acc = accs[i]
+        doc = docs[i]
+        acc_clean = acc.replace("-", "")
+
+        # Try to parse the Form 4 XML for transaction details
+        detail = None
+        try:
+            filing_url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/{doc}"
+            req2 = urllib.request.Request(filing_url, headers={**HEADERS, "Accept": "text/html,application/xml"})
+            with urllib.request.urlopen(req2, timeout=10) as resp2:
+                raw = resp2.read().decode("utf-8", errors="replace")
+
+            # Find XML portion
+            xml_start = raw.find("<XML>") + 5 if "<XML>" in raw else raw.find("<xml>")
+            xml_end = raw.find("</XML>") if "</XML>" in raw else raw.find("</xml>")
+            if xml_start > 4 and xml_end > 0:
+                xml_str = raw[xml_start:xml_end]
+                root = ET.fromstring(xml_str)
+
+                # Extract reporting owner
+                owner = {}
+                for rp in root.iter():
+                    tag = rp.tag.split("}")[-1] if "}" in rp.tag else rp.tag
+                    if tag == "reportingOwner":
+                        for child in rp:
+                            ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                            owner[ct] = (child.text or "").strip()
+
+                # Extract transactions
+                txns = []
+                for tx in root.iter():
+                    tag = tx.tag.split("}")[-1] if "}" in tx.tag else tx.tag
+                    if tag in ("nonDerivativeTransaction", "derivativeTransaction"):
+                        txn = {}
+                        for child in tx:
+                            ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                            txn[ct] = (child.text or "").strip()
+                        txns.append(txn)
+
+                # Parse transactions into readable format
+                for txn in txns:
+                    code = txn.get("transactionCode", "?")
+                    shares = float(txn.get("transactionShares", 0) or 0)
+                    price = float(txn.get("transactionPricePerShare", 0) or 0)
+                    direction = (
+                        "BUY" if code == "P" else
+                        "SELL" if code == "S" else
+                        "GRANT" if code == "A" else
+                        "TAX" if code == "F" else
+                        "EXERCISE" if code == "M" else
+                        code
+                    )
+                    if shares > 0:
+                        trades.append({
+                            "filing_date": dates[i],
+                            "insider": f"{owner.get('rptOwnerName', 'Unknown')}",
+                            "title": owner.get("rptOwnerTitle", ""),
+                            "direction": direction,
+                            "transaction_code": code,
+                            "shares": int(shares),
+                            "price": price,
+                            "total_value": round(shares * price, 2),
+                            "shares_owned_after": txn.get("sharesOwnedFollowingTransaction", ""),
+                            "form_url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/{doc}",
+                        })
+
+        except Exception:
+            # Fallback: just show filing info without detail
+            trades.append({
+                "filing_date": dates[i],
+                "insider": "See filing",
+                "direction": "UNKNOWN",
+                "form_url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/{doc}",
+            })
+
+    # Sort by date (newest first) and deduplicate
+    trades.sort(key=lambda x: x["filing_date"], reverse=True)
+
+    # Summary
+    buys = [t for t in trades if t["direction"] == "BUY"]
+    sells = [t for t in trades if t["direction"] == "SELL"]
+    grants = [t for t in trades if t["direction"] == "GRANT"]
+
+    return {
+        "ticker": ticker.upper(),
+        "cik": cik,
+        "lookback_days": lookback,
+        "total_trades": len(trades),
+        "summary": {
+            "buys": len(buys),
+            "sells": len(sells),
+            "grants": len(grants),
+            "total_buy_value": round(sum(t["total_value"] for t in buys), 2) if buys else 0,
+            "total_sell_value": round(sum(t["total_value"] for t in sells), 2) if sells else 0,
+        },
+        "trades": trades[:100],
+    }
+
+
 if __name__ == "__main__":
     import os
 
