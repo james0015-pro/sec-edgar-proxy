@@ -1,0 +1,264 @@
+{
+  "date": "2026-05-25",
+  "generated_at": "2026-05-25T13:12:47.606315",
+  "insider": [
+    {
+      "ticker": "AAPL",
+      "count": 0,
+      "filings": []
+    },
+    {
+      "ticker": "TSLA",
+      "count": 0,
+      "filings": []
+    },
+    {
+      "ticker": "NVDA",
+      "count": 0,
+      "filings": []
+    },
+    {
+      "ticker": "MSFT",
+      "count": 0,
+      "filings": []
+    },
+    {
+      "ticker": "META",
+      "count": 20,
+      "filings": [
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007496",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007496/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007493",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007493/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007492",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007492/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007491",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007491/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007490",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007490/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007489",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007489/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007488",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007488/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007478",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007478/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007475",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007475/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007474",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007474/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007472",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007472/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007470",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007470/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007469",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007469/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007468",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007468/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007466",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007466/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007464",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007464/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007463",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007463/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007462",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007462/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007460",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007460/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0000950103-26-007458",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1326801/000095010326007458/xslF345X06/ownership.xml"
+        }
+      ]
+    },
+    {
+      "ticker": "GOOGL",
+      "count": 2,
+      "filings": [
+        {
+          "filing_date": "2026-05-20",
+          "report_date": "2026-05-18",
+          "accession_number": "0001193125-26-233121",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1652044/000119312526233121/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0001193125-26-231383",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1652044/000119312526231383/xslF345X06/ownership.xml"
+        }
+      ]
+    },
+    {
+      "ticker": "AMZN",
+      "count": 4,
+      "filings": [
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0002024813-26-000006",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1018724/000202481326000006/xslF345X06/wk-form4_1779225197.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0001936006-26-000016",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1018724/000193600626000016/xslF345X06/wk-form4_1779224693.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0001851101-26-000002",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1018724/000185110126000002/xslF345X06/wk-form4_1779224183.xml"
+        },
+        {
+          "filing_date": "2026-05-19",
+          "report_date": "2026-05-15",
+          "accession_number": "0001183818-26-000005",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1018724/000118381826000005/xslF345X06/wk-form4_1779223704.xml"
+        }
+      ]
+    },
+    {
+      "ticker": "BRK-B",
+      "count": 1,
+      "filings": [
+        {
+          "filing_date": "2026-05-20",
+          "report_date": "2026-05-18",
+          "accession_number": "0001193125-26-232543",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1067983/000119312526232543/xslF345X06/ownership.xml"
+        }
+      ]
+    },
+    {
+      "ticker": "JPM",
+      "count": 1,
+      "filings": [
+        {
+          "filing_date": "2026-05-20",
+          "report_date": "2026-05-20",
+          "accession_number": "0001225208-26-005514",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/19617/000122520826005514/xslF345X06/doc4.xml"
+        }
+      ]
+    },
+    {
+      "ticker": "V",
+      "count": 0,
+      "filings": []
+    }
+  ],
+  "institutional": [
+    {
+      "name": "Berkshire Hathaway",
+      "cik": "1067983",
+      "filings_count": 2,
+      "latest_filing": "2026-05-15",
+      "top_holdings": null
+    },
+    {
+      "name": "BlackRock",
+      "cik": "1364742",
+      "filings_count": 2,
+      "latest_filing": "2026-05-13",
+      "top_holdings": null
+    },
+    {
+      "name": "Vanguard",
+      "cik": "102909",
+      "error": "HTTP Error 404: Not Found"
+    },
+    {
+      "name": "State Street",
+      "cik": "93751",
+      "filings_count": 2,
+      "latest_filing": "2026-05-15",
+      "top_holdings": null
+    },
+    {
+      "name": "Renaissance Technologies",
+      "cik": "1037389",
+      "filings_count": 0,
+      "latest_filing": null,
+      "top_holdings": null
+    }
+  ]
+}
