@@ -5,7 +5,8 @@ Endpoints:
   GET /insider/ticker?ticker=AAPL&lookback=90       — insider Form 4 filings
   GET /insider/cik?cik=320193&lookback=90            — insider by CIK
   GET /institutional/ticker?ticker=AAPL              — 13F filings list
-  GET /institutional/holdings?cik=...&acc=...        — 13F holdings detail
+  GET /institutional/search?ticker=AAPL           — 13F reverse search (who holds this stock)
+  GET /institutional/nasdaq?ticker=AAPL           — NASDAQ institutional ownership %
   GET /earnings?ticker=AAPL&quarters=8               — earnings history
   GET /price?ticker=AAPL&date=2026-04-27             — price on a date
   GET /filing?acc=...&cik=...                        — Form 4 XML detail
@@ -519,6 +520,89 @@ def institutional_holdings(
         "accession_number": acc,
         "holdings": holdings,
         "count": len(holdings),
+    }
+
+
+@app.get("/institutional/nasdaq")
+def nasdaq_holders(
+    ticker: str = Query(..., description="Stock ticker (e.g. AAPL)"),
+):
+    """Get institutional ownership from NASDAQ API."""
+    url = f"https://api.nasdaq.com/api/company/{ticker.upper()}/institutional-holdings?limit=20&type=TOTAL&sortBy=marketValue"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        raise HTTPException(502, detail=f"NASDAQ API failed: {e}")
+
+    summary = data.get("data", {}).get("ownershipSummary", {})
+    active = data.get("data", {}).get("activePositions", {})
+    holders_list = active.get("rows", [])
+
+    holders = []
+    for row in holders_list[:20]:
+        holders.append({
+            "holder": row.get("ownerName", ""),
+            "shares": row.get("sharesHeld", ""),
+            "value": row.get("marketValue", ""),
+            "change": row.get("sharesChange", ""),
+            "change_pct": row.get("sharesChangePct", ""),
+        })
+
+    return {
+        "ticker": ticker.upper(),
+        "institutional_ownership": summary.get("SharesOutstandingPCT", {}).get("value", "N/A"),
+        "total_value": summary.get("TotalHoldingsValue", {}).get("value", "N/A"),
+        "holders": holders,
+        "holders_count": len(holders),
+    }
+
+
+@app.get("/institutional/search")
+def institutional_search(
+    ticker: str = Query(..., description="Stock ticker to search in 13F filings"),
+    limit: int = Query(20, description="Max results"),
+):
+    """
+    Reverse 13F search: find institutions that filed 13F mentioning this stock.
+    Uses SEC EDGAR full-text search.
+    """
+    url = (
+        f"https://efts.sec.gov/LATEST/search-index"
+        f"?q={ticker.upper()}"
+        f"&forms=13F-HR"
+        f"&from=0"
+    )
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+
+    hits = data.get("hits", {}).get("hits", [])
+    total = data.get("hits", {}).get("total", {}).get("value", 0)
+
+    results = []
+    for hit in hits[:limit]:
+        src = hit.get("_source", {})
+        results.append({
+            "filer": src.get("display_names", [""])[0],
+            "cik": src.get("ciks", [""])[0],
+            "filing_date": src.get("file_date", ""),
+            "form": src.get("form", ""),
+            "adsh": src.get("adsh", ""),
+        })
+
+    return {
+        "ticker": ticker.upper(),
+        "total_13f_filings": total,
+        "institutions": results,
+        "count": len(results),
     }
 
 
