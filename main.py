@@ -4,10 +4,10 @@ Deployed on US-based server (Hetzner Virginia).
 Endpoints:
   GET /insider/ticker?ticker=AAPL&lookback=90       — insider Form 4 filings
   GET /insider/cik?cik=320193&lookback=90            — insider by CIK
+  GET /institutional/ticker?ticker=AAPL              — 13F filings list
+  GET /institutional/holdings?cik=...&acc=...        — 13F holdings detail
   GET /earnings?ticker=AAPL&quarters=8               — earnings history
   GET /price?ticker=AAPL&date=2026-04-27             — price on a date
-  GET /compare?ticker=AAPL&quarters=8                — full comparison:
-      earnings dates + price changes + insider filings + 13F windows
   GET /filing?acc=...&cik=...                        — Form 4 XML detail
 """
 
@@ -397,6 +397,128 @@ def filing_detail(
         "url": url,
         "size": len(raw),
         "preview": raw[:2000],
+    }
+
+
+@app.get("/institutional/ticker")
+def institutional_by_ticker(
+    ticker: str = Query(..., description="Stock ticker (e.g. AAPL)"),
+    lookback: int = Query(180, description="Lookback days for 13F filings"),
+):
+    """List recent 13F institutional filings for a company."""
+    cik = cik_from_ticker(ticker)
+    padded = cik_padded(cik)
+    url = f"https://data.sec.gov/submissions/CIK{padded}.json"
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+
+    filings = data.get("filings", {}).get("recent", {})
+    forms = filings.get("form", [])
+    dates = filings.get("filingDate", [])
+    accs = filings.get("accessionNumber", [])
+    docs = filings.get("primaryDocument", [])
+    rdates = filings.get("reportDate", [])
+
+    cutoff = datetime.now() - timedelta(days=lookback)
+    result = []
+    for i in range(len(forms)):
+        if forms[i] not in ("13F-HR", "13F-HR/A"):
+            continue
+        try:
+            fd = datetime.strptime(dates[i], "%Y-%m-%d")
+        except (ValueError, IndexError):
+            continue
+        if fd < cutoff:
+            continue
+        acc = accs[i] if i < len(accs) else ""
+        doc = docs[i] if i < len(docs) else ""
+        result.append({
+            "form": forms[i],
+            "filing_date": dates[i],
+            "report_date": rdates[i] if i < len(rdates) else "",
+            "accession_number": acc,
+            "primary_document": doc,
+        })
+
+    return {"ticker": ticker.upper(), "cik": cik, "filings": result, "count": len(result)}
+
+
+@app.get("/institutional/holdings")
+def institutional_holdings(
+    cik: str = Query(..., description="Institution CIK (e.g. 1067983 for Berkshire)"),
+    acc: str = Query(..., description="13F accession number with dashes"),
+):
+    """Parse a 13F filing XML and return holdings."""
+    import xml.etree.ElementTree as ET
+
+    acc_clean = acc.replace("-", "")
+    # 13F filings: the information table is in a separate XML file
+    # Usually named like 'primary_doc.xml' or 'xslForm13F_X02/form13fInfoTable.xml'
+    # Try the main document first, then fall back to the info table
+    urls_to_try = [
+        f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/{acc_clean}.txt",
+    ]
+
+    xml_content = None
+    for u in urls_to_try:
+        req = urllib.request.Request(u, headers={**HEADERS, "Accept": "text/html,application/xml"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+        except Exception:
+            continue
+
+        # Look for the XML info table section
+        # 13F filings embed the info table XML between <XML> tags in the .txt
+        xml_start = raw.find("<informationTable")
+        if xml_start == -1:
+            xml_start = raw.find("<ns1:informationTable")
+        xml_end = raw.find("</informationTable>")
+        if xml_end == -1:
+            xml_end = raw.find("</ns1:informationTable>")
+
+        if xml_start != -1 and xml_end != -1:
+            xml_content = raw[xml_start : xml_end + len("</informationTable>")]
+            break
+
+    if not xml_content:
+        raise HTTPException(404, detail="No 13F information table found in filing")
+
+    # Parse holdings
+    try:
+        root = ET.fromstring(xml_content)
+    except ET.ParseError as e:
+        raise HTTPException(500, detail=f"XML parse error: {str(e)[:200]}")
+
+    holdings = []
+    for entry in root.iter():
+        tag = entry.tag.split("}")[-1] if "}" in entry.tag else entry.tag
+        if tag not in ("infoTable", "entry"):
+            continue
+
+        item = {}
+        for child in entry:
+            ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            item[ct] = (child.text or "").strip()
+
+        if item.get("nameOfIssuer"):
+            holdings.append({
+                "issuer": item.get("nameOfIssuer", ""),
+                "class": item.get("titleOfClass", ""),
+                "cusip": item.get("cusip", ""),
+                "value_x1000": item.get("value", ""),
+                "shares": item.get("sshPrnamt", ""),
+                "put_call": item.get("putCall", ""),
+                "discretion": item.get("investmentDiscretion", ""),
+                "sole_voting": item.get("votingAuthority", {}).get("Sole", "") if isinstance(item.get("votingAuthority"), dict) else "",
+            })
+
+    return {
+        "cik": cik,
+        "accession_number": acc,
+        "holdings": holdings,
+        "count": len(holdings),
     }
 
 
