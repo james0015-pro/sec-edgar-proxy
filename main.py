@@ -383,7 +383,7 @@ def filing_detail(
     acc_clean = acc.replace("-", "")
     url = (
         f"https://www.sec.gov/Archives/edgar/data/{cik}/"
-        f"{acc_clean}/{acc_clean}.txt"
+        f"{acc_clean}/{acc}.txt"
     )
     req = urllib.request.Request(
         url, headers={**HEADERS, "Accept": "text/html,application/xml"}
