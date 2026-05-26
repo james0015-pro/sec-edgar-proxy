@@ -1,5 +1,6 @@
 """SEC EDGAR + Yahoo Finance Proxy API
 Deployed on US-based server (Hetzner Virginia).
+v2.2 — added /live endpoint for complete real-time stock snapshots
 
 Endpoints:
   GET /insider/ticker?ticker=AAPL&lookback=90       — insider Form 4 filings
@@ -814,6 +815,241 @@ def insider_detail(
             "total_sell_value": round(sum(t["total_value"] for t in sells), 2) if sells else 0,
         },
         "trades": trades[:100],
+    }
+
+
+@app.get("/live")
+def live_snapshot(
+    ticker: str = Query(..., description="Stock ticker (e.g. TSM)"),
+    lookback: int = Query(90, description="Insider trade lookback days"),
+):
+    """
+    Complete live snapshot for ANY ticker — price, market cap, institutional
+    ownership, and insider trades.  One call gives the frontend / Telegram bot
+    everything it needs to render a full stock detail panel.
+    """
+    tu = ticker.upper()
+
+    # ── 1. Price + market cap (yfinance) ──────────────────────────
+    price_data = {"price": None, "change_pct": None, "market_cap": None}
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(ticker).info
+        price_data = {
+            "price": info.get("currentPrice") or info.get("regularMarketPrice"),
+            "change_pct": info.get("regularMarketChangePercent"),
+            "market_cap": info.get("marketCap"),
+            "pe_trailing": info.get("trailingPE"),
+            "pe_forward": info.get("forwardPE"),
+            "beta": info.get("beta"),
+            "short_float_pct": info.get("shortPercentOfFloat"),
+            "short_ratio": info.get("shortRatio"),
+        }
+    except Exception:
+        pass
+
+    # ── 2. Institutional ownership (NASDAQ) ───────────────────────
+    inst_data = {"ownership_pct": None, "top_holders": []}
+    try:
+        nasdaq_url = (
+            f"https://api.nasdaq.com/api/company/{tu}"
+            "/institutional-holdings?limit=10&type=TOTAL&sortBy=marketValue"
+        )
+        req = urllib.request.Request(
+            nasdaq_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36"
+                ),
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            nd = json.loads(resp.read())
+        summary = nd.get("data", {}).get("ownershipSummary", {})
+        inst_data["ownership_pct"] = summary.get(
+            "SharesOutstandingPCT", {}
+        ).get("value")
+        rows = nd.get("data", {}).get("activePositions", {}).get("rows", [])
+        for row in rows[:10]:
+            inst_data["top_holders"].append(
+                {
+                    "holder": row.get("ownerName", ""),
+                    "shares": row.get("sharesHeld", ""),
+                    "value": row.get("marketValue", ""),
+                    "change_pct": row.get("sharesChangePct", ""),
+                }
+            )
+    except Exception:
+        pass
+
+    # ── 3. Insider trades (SEC submissions API) ───────────────────
+    insider_data = {"total_filings": 0, "buys": 0, "sells": 0, "buy_value": 0,
+                    "sell_value": 0, "recent": []}
+    try:
+        cik = cik_from_ticker(ticker)
+        padded = cik_padded(cik)
+        sec_url = f"https://data.sec.gov/submissions/CIK{padded}.json"
+        req = urllib.request.Request(sec_url, headers=HEADERS)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            sec = json.loads(resp.read())
+
+        filings = sec.get("filings", {}).get("recent", {})
+        forms = filings.get("form", [])
+        dates = filings.get("filingDate", [])
+        accs = filings.get("accessionNumber", [])
+        cutoff = datetime.now() - timedelta(days=lookback)
+
+        for i in range(len(forms)):
+            if forms[i] != "4":
+                continue
+            try:
+                fd = datetime.strptime(dates[i], "%Y-%m-%d")
+            except (ValueError, IndexError):
+                continue
+            if fd < cutoff:
+                continue
+            insider_data["total_filings"] += 1
+
+        # Quick parse of the 3 most recent Form 4 filings for trade details
+        parsed_count = 0
+        for i in range(len(forms)):
+            if forms[i] != "4" or parsed_count >= 3:
+                continue
+            try:
+                fd = datetime.strptime(dates[i], "%Y-%m-%d")
+            except (ValueError, IndexError):
+                continue
+            if fd < cutoff:
+                continue
+
+            acc = accs[i] if i < len(accs) else ""
+            acc_clean = acc.replace("-", "")
+            raw_url = (
+                f"https://www.sec.gov/Archives/edgar/data/{cik}"
+                f"/{acc_clean}/{acc}.txt"
+            )
+            try:
+                req2 = urllib.request.Request(raw_url, headers=HEADERS)
+                with urllib.request.urlopen(req2, timeout=12) as resp2:
+                    raw = resp2.read().decode("utf-8", errors="replace")
+            except Exception:
+                continue
+
+            xml_match = re.search(
+                r"<XML>(.*?)</XML>", raw, re.DOTALL
+            ) or re.search(r"<xml>(.*?)</xml>", raw, re.DOTALL | re.IGNORECASE)
+            if not xml_match:
+                continue
+
+            xml = xml_match.group(1)
+            insider_name = (
+                re.search(
+                    r"<rptOwnerName>(.*?)</rptOwnerName>",
+                    xml,
+                    re.IGNORECASE,
+                )
+                or [None]
+            )[1] or "?"
+            role = (
+                re.search(
+                    r"<officerTitle>(.*?)</officerTitle>",
+                    xml,
+                    re.IGNORECASE,
+                )
+                or [None]
+            )[1] or ""
+
+            for nd in re.findall(
+                r"<nonDerivativeTransaction>(.*?)</nonDerivativeTransaction>",
+                xml,
+                re.DOTALL | re.IGNORECASE,
+            ):
+                code = (
+                    re.search(
+                        r"<transactionCode>(.*?)</transactionCode>",
+                        nd,
+                        re.IGNORECASE,
+                    )
+                    or [None]
+                )[1] or "?"
+                shares_str = (
+                    re.search(
+                        r"<transactionShares>\s*<value>(.*?)</value>",
+                        nd,
+                        re.IGNORECASE,
+                    )
+                    or [None, "0"]
+                )[1] or "0"
+                price_str = (
+                    re.search(
+                        r"<transactionPricePerShare>\s*<value>(.*?)</value>",
+                        nd,
+                        re.IGNORECASE,
+                    )
+                    or [None, "0"]
+                )[1] or "0"
+                tx_date = (
+                    re.search(
+                        r"<transactionDate>\s*<value>(.*?)</value>",
+                        nd,
+                        re.IGNORECASE,
+                    )
+                    or [None, ""]
+                )[1] or ""
+                try:
+                    shares = int(float(shares_str))
+                except (ValueError, TypeError):
+                    shares = 0
+                try:
+                    price = float(price_str)
+                except (ValueError, TypeError):
+                    price = 0
+                value = round(shares * price)
+                is_buy = code in ("P", "A")
+
+                insider_data["recent"].append(
+                    {
+                        "insider": insider_name,
+                        "role": role,
+                        "date": tx_date,
+                        "type": "BUY" if is_buy else "SELL",
+                        "shares": shares,
+                        "price": price,
+                        "value": value,
+                    }
+                )
+                if is_buy:
+                    insider_data["buys"] += 1
+                    insider_data["buy_value"] += value
+                else:
+                    insider_data["sells"] += 1
+                    insider_data["sell_value"] += value
+
+            parsed_count += 1
+
+    except Exception:
+        pass
+
+    # Deduplicate + sort recent trades
+    seen = set()
+    deduped = []
+    for t in insider_data["recent"]:
+        key = (t["insider"], t["date"], t["type"], t["shares"], t["price"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(t)
+    deduped.sort(key=lambda x: x["date"], reverse=True)
+    insider_data["recent"] = deduped[:10]
+
+    return {
+        "ticker": tu,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "price": price_data,
+        "institutional": inst_data,
+        "insider": insider_data,
     }
 
 
