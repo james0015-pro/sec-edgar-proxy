@@ -1058,7 +1058,7 @@ def live_snapshot(
             seen.add(key)
             deduped.append(t)
     deduped.sort(key=lambda x: x["date"], reverse=True)
-    insider_data["recent"] = deduped[:10]
+    insider_data["recent"] = deduped[:50]
 
     return {
         "ticker": tu,
