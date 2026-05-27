@@ -936,10 +936,10 @@ def live_snapshot(
                 continue
             insider_data["total_filings"] += 1
 
-        # Quick parse of the 3 most recent Form 4 filings for trade details
+        # Quick parse of the 10 most recent Form 4 filings for trade details
         parsed_count = 0
         for i in range(len(forms)):
-            if forms[i] != "4" or parsed_count >= 3:
+            if forms[i] != "4" or parsed_count >= 10:
                 continue
             try:
                 fd = datetime.strptime(dates[i], "%Y-%m-%d")
