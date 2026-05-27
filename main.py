@@ -1,6 +1,6 @@
 """SEC EDGAR + Yahoo Finance Proxy API
 Deployed on US-based server (Hetzner Virginia).
-v2.2 — added /live endpoint for complete real-time stock snapshots
+v2.3 — fixed insider XML parsing, institutional yfinance fallback, Python 3.13 compat
 
 Endpoints:
   GET /insider/ticker?ticker=AAPL&lookback=90       — insider Form 4 filings
@@ -15,13 +15,13 @@ Endpoints:
 
 import json
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-app = FastAPI(title="SEC + Yahoo Proxy", version="2.1.0")
+app = FastAPI(title="SEC + Yahoo Proxy", version="2.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -849,7 +849,7 @@ def live_snapshot(
     except Exception:
         pass
 
-    # ── 2. Institutional ownership (NASDAQ) ───────────────────────
+    # ── 2. Institutional ownership (NASDAQ + yfinance fallback) ────
     inst_data = {"ownership_pct": None, "top_holders": []}
     try:
         nasdaq_url = (
@@ -882,6 +882,27 @@ def live_snapshot(
                     "change_pct": row.get("sharesChangePct", ""),
                 }
             )
+        # Fallback: if NASDAQ returns empty holder names, use yfinance
+        has_real_data = any(
+            h.get("holder", "").strip() for h in inst_data["top_holders"]
+        )
+        if not has_real_data:
+            try:
+                import yfinance as yf
+                ih = yf.Ticker(ticker).institutional_holders
+                if ih is not None and not ih.empty:
+                    inst_data["top_holders"] = []
+                    for _, row in ih.head(10).iterrows():
+                        inst_data["top_holders"].append({
+                            "holder": str(row.get("Holder", "")),
+                            "shares": str(row.get("Shares", "")),
+                            "value": str(row.get("Value", "")),
+                            "change_pct": str(row.get("% Change", "")),
+                            "pct_out": str(row.get("% Out", "")),
+                            "date": str(row.get("Date Reported", "")),
+                        })
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -951,54 +972,30 @@ def live_snapshot(
                     xml,
                     re.IGNORECASE,
                 )
-                or [None]
-            )[1] or "?"
+            )
+            insider_name = insider_name.group(1) if insider_name else "?"
             role = (
                 re.search(
                     r"<officerTitle>(.*?)</officerTitle>",
                     xml,
                     re.IGNORECASE,
                 )
-                or [None]
-            )[1] or ""
+            )
+            role = role.group(1) if role else ""
 
             for nd in re.findall(
                 r"<nonDerivativeTransaction>(.*?)</nonDerivativeTransaction>",
                 xml,
                 re.DOTALL | re.IGNORECASE,
             ):
-                code = (
-                    re.search(
-                        r"<transactionCode>(.*?)</transactionCode>",
-                        nd,
-                        re.IGNORECASE,
-                    )
-                    or [None]
-                )[1] or "?"
-                shares_str = (
-                    re.search(
-                        r"<transactionShares>\s*<value>(.*?)</value>",
-                        nd,
-                        re.IGNORECASE,
-                    )
-                    or [None, "0"]
-                )[1] or "0"
-                price_str = (
-                    re.search(
-                        r"<transactionPricePerShare>\s*<value>(.*?)</value>",
-                        nd,
-                        re.IGNORECASE,
-                    )
-                    or [None, "0"]
-                )[1] or "0"
-                tx_date = (
-                    re.search(
-                        r"<transactionDate>\s*<value>(.*?)</value>",
-                        nd,
-                        re.IGNORECASE,
-                    )
-                    or [None, ""]
-                )[1] or ""
+                code_m = re.search(r"<transactionCode>(.*?)</transactionCode>", nd, re.IGNORECASE)
+                code = code_m.group(1) if code_m else "?"
+                shares_m = re.search(r"<transactionShares>\s*<value>(.*?)</value>", nd, re.IGNORECASE)
+                shares_str = shares_m.group(1) if shares_m else "0"
+                price_m = re.search(r"<transactionPricePerShare>\s*<value>(.*?)</value>", nd, re.IGNORECASE)
+                price_str = price_m.group(1) if price_m else "0"
+                tx_date_m = re.search(r"<transactionDate>\s*<value>(.*?)</value>", nd, re.IGNORECASE)
+                tx_date = tx_date_m.group(1) if tx_date_m else ""
                 try:
                     shares = int(float(shares_str))
                 except (ValueError, TypeError):
@@ -1008,14 +1005,27 @@ def live_snapshot(
                 except (ValueError, TypeError):
                     price = 0
                 value = round(shares * price)
-                is_buy = code in ("P", "A")
+                
+                # Better categorization: P=buy, A=grant(buy), S=sell, F=tax(sell), M=exercise
+                if code in ("P",):
+                    ttype, is_buy = "BUY", True
+                elif code in ("A",):
+                    ttype, is_buy = "GRANT", True
+                elif code in ("S",):
+                    ttype, is_buy = "SELL", False
+                elif code in ("F",):
+                    ttype, is_buy = "TAX_SELL", False
+                elif code in ("M",):
+                    ttype, is_buy = "EXERCISE", True  # acquiring shares via option exercise
+                else:
+                    ttype, is_buy = code, False
 
                 insider_data["recent"].append(
                     {
                         "insider": insider_name,
                         "role": role,
                         "date": tx_date,
-                        "type": "BUY" if is_buy else "SELL",
+                        "type": ttype,
                         "shares": shares,
                         "price": price,
                         "value": value,
@@ -1046,7 +1056,7 @@ def live_snapshot(
 
     return {
         "ticker": tu,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "price": price_data,
         "institutional": inst_data,
         "insider": insider_data,
