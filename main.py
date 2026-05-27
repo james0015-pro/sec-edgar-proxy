@@ -14,6 +14,8 @@ Endpoints:
 """
 
 import json
+import re
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -958,6 +960,10 @@ def live_snapshot(
                     raw = resp2.read().decode("utf-8", errors="replace")
             except Exception:
                 continue
+
+            # Rate-limit: SEC blocks rapid raw-filing fetches
+            if parsed_count > 0:
+                time.sleep(1.0)
 
             xml_match = re.search(
                 r"<XML>(.*?)</XML>", raw, re.DOTALL
