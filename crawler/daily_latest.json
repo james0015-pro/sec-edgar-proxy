@@ -1,6 +1,6 @@
 {
-  "date": "2026-05-27",
-  "generated_at": "2026-05-27T08:00:46.492840",
+  "date": "2026-05-28",
+  "generated_at": "2026-05-28T08:00:46.279838",
   "insider": [
     {
       "ticker": "AAPL",
@@ -29,8 +29,39 @@
     },
     {
       "ticker": "GOOGL",
-      "count": 0,
-      "filings": []
+      "count": 5,
+      "filings": [
+        {
+          "filing_date": "2026-05-27",
+          "report_date": "2026-05-25",
+          "accession_number": "0001193125-26-242640",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1652044/000119312526242640/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-27",
+          "report_date": "2026-05-25",
+          "accession_number": "0001193125-26-242636",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1652044/000119312526242636/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-27",
+          "report_date": "2026-05-25",
+          "accession_number": "0001193125-26-242634",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1652044/000119312526242634/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-27",
+          "report_date": "2026-05-25",
+          "accession_number": "0001193125-26-242630",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1652044/000119312526242630/xslF345X06/ownership.xml"
+        },
+        {
+          "filing_date": "2026-05-27",
+          "report_date": "2026-05-25",
+          "accession_number": "0001193125-26-242628",
+          "form_url": "https://www.sec.gov/Archives/edgar/data/1652044/000119312526242628/xslF345X06/ownership.xml"
+        }
+      ]
     },
     {
       "ticker": "AMZN",
